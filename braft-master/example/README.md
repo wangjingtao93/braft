@@ -1,8 +1,8 @@
 Brief introduction of examples:
 
 * Counter: A integer which can be added to by a given number in each request.
-* Atomic: : A integer which supports exchange and compare_exchange operation.
-* Block: A single block device supports randomly read/write concurrently.
+* Atomic: : A integer（整数） which supports exchange and compare_exchange operation.
+* Block: A single block（块） device（设备） supports randomly read/write concurrently.
 
 # Build steps
 
@@ -26,7 +26,7 @@ bash run_server.sh
 bash run_client.sh
 ```
 
-* Default concurrency of client is 1, changed by `--thread_num` 
+* Default concurrency（并发） of client is 1, changed by `--thread_num` 
 * If server_num of run_server.sh has been changed, specify run_client to make it consistent.
 * Add `--log_each_request` if you want detailed information of each request.
 

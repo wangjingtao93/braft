@@ -118,6 +118,7 @@ local.nextIndex = max(min(local.nextIndex-1, resp.LastLogIndex+1), 1)
 Snapshot是Log Compaction的常用方法，将系统的全部状态写入一个Snapshot中，并持久化的一个可靠存储系统中，完成Snapshot之后这个点之前的Log就可以被删除了。
 
 ![img](../images/log_compaction.png)
+服务器用一个新的快照替换其日志中的已提交条目(索引1到5)
 
 Snapshot的时候，除了业务状态机dump自己的业务数据之外，还需要一些元信息：
 

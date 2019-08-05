@@ -23,6 +23,14 @@ protobuf_generate_cpp(PROTO_SRC PROTO_HEADER atomic.proto)
 # include PROTO_HEADER
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
 
+
+find_path(GLOG_INCLUDE_PATH NAMES glog/logging.h)
+find_library(GLOG_LIB NAMES glog)
+if((NOT GLOG_INCLUDE_PATH) OR (NOT GLOG_LIB))
+    message(FATAL_ERROR "Fail to find glog")
+endif()
+include_directories(${GLOG_INCLUDE_PATH})
+
 find_path(BRPC_INCLUDE_PATH NAMES brpc/server.h)
 if(EXAMPLE_LINK_SO)
     find_library(BRPC_LIB NAMES brpc)
@@ -127,6 +135,7 @@ set(DYNAMIC_LIB
     ${LEVELDB_LIB}
     ${BRAFT_LIB}
     ${BRPC_LIB}
+    ${GLOG_LIB}
     rt
     ssl
     crypto

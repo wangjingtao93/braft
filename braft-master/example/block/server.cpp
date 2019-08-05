@@ -33,11 +33,13 @@ DEFINE_int32(snapshot_interval, 30, "Interval between each snapshot");
 DEFINE_string(conf, "", "Initial configuration of the replication group");
 DEFINE_string(data_path, "./data", "Path of data stored on");
 DEFINE_string(group, "Block", "Id of the replication group");
+DEFINE_string(crash_on_fatal, "true", "Crash on fatal log");//wjt添加
 
 namespace example {
 class Block;
 
-// Implements Closure which encloses RPC stuff
+// Implements Closure（关闭，使终止） which enclosed（围绕，装入，放入封套） RPC stuff（东西，塞满，填塞）
+// 实现包含RPC内容的关闭
 class BlockClosure : public braft::Closure {
 public:
     BlockClosure(Block* block, 
@@ -72,7 +74,7 @@ public:
     Block()
         : _node(NULL)
         , _leader_term(-1)
-        , _fd(NULL)
+        , _fd(NULL)//干啥用涅
     {}
     ~Block() {
         delete _node;
@@ -145,7 +147,7 @@ public:
         // Apply this log as a braft::Task
         braft::Task task;
         task.data = &log;
-        // This callback would be iovoked when the task actually excuted or
+        // This callback would be iovoked(触发) when the task actually excuted or
         // fail
         task.done = new BlockClosure(this, request, response,
                                      data, done_guard.release());
@@ -209,6 +211,7 @@ public:
         }
     }
 
+//干啥用的，fd是filedate？
 private:
     class SharedFD : public butil::RefCountedThreadSafe<SharedFD> {
     public:
@@ -250,16 +253,22 @@ friend class BlockClosure;
     }
 
     // @braft::StateMachine
+    // 这个是必须要实现的
+    // 会在一条或者多条日志被多数节点持久化之后调用。通知用户将这些日志所表示的操作应用到业务状态机中
+    // 通过iter，可以从遍历所有未处理但是已经提交的日志，如果你的状态机支持批量更新，可以一次性获取
+    // 多条日志,提高状态机的吞吐
     void on_apply(braft::Iterator& iter) {
-        // A batch of tasks are committed, which must be processed through 
+        // A batch（批） of tasks are committed, which must be processed through 
         // |iter|
         for (; iter.valid(); iter.next()) {
             BlockResponse* response = NULL;
-            // This guard helps invoke iter.done()->Run() asynchronously to
+            // This guard helps invoke（调用） iter.done()->Run() asynchronously to
             // avoid that callback blocks the StateMachine
             braft::AsyncClosureGuard closure_guard(iter.done());
             butil::IOBuf data;
             off_t offset = 0;
+
+            //判断是从request中解析还是从log中解析
             if (iter.done()) {
                 // This task is applied by this node, get value from this
                 // closure to avoid additional parsing.
@@ -273,7 +282,7 @@ friend class BlockClosure;
                 butil::IOBuf saved_log = iter.data();
                 saved_log.cutn(&meta_size, sizeof(uint32_t));
                 // Remember that meta_size is in network order which hould be
-                // covert to host order
+                // covert to host order网络序 和主机序列
                 meta_size = butil::NetToHost32(meta_size);
                 butil::IOBuf meta;
                 saved_log.cutn(&meta, meta_size);
@@ -284,6 +293,7 @@ friend class BlockClosure;
                 offset = request.offset();
             }
 
+            //这是干什么用涅
             const ssize_t nw = braft::file_pwrite(data, _fd->fd(), offset);
             if (nw < 0) {
                 PLOG(ERROR) << "Fail to write to fd=" << _fd->fd();

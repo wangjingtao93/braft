@@ -13,11 +13,14 @@ brpc允许一个端口上注册多个逻辑Service,  如果你的Service同样�
 ```cpp
 // Attach raft services to |server|, this makes the raft services share the same
 // listen address with the user services.
+// 使raft Services和usr Services共享listen address 
 //
 // NOTE: Now we only allow the backing Server to be started with a specific
 // listen address, if the Server is going to be started from a range of ports, 
 // the behavior is undefined.
 // Returns 0 on success, -1 otherwise.
+//允许后备服务器以一个指定的listen address start（启动）
+// Server(服务器) 从一系列端口启动，行为未定义
 int add_service(brpc::Server* server, const butil::EndPoint& listen_addr);
 int add_service(brpc::Server* server, int port);
 int add_service(brpc::Server* server, const char* const butil::EndPoint& listen_addr);
@@ -37,6 +40,8 @@ int add_service(brpc::Server* server, const char* const butil::EndPoint& listen_
 // NOTE: All the interfaces are not required to be thread safe and they are 
 // called sequentially, saying that every single method will block all the 
 // following ones.
+// 所有接口都不需要是线程安全的,他们被顺序调用（啥意思，读写内存 互斥 锁之类的？） 
+// 说每个方法都会阻止以下所有方法
 class YourStateMachineImple : public braft::StateMachine {
 protected:
     // on_apply是*必须*实现的
@@ -45,8 +50,9 @@ protected:
     // 条日志提高状态机的吞吐.
     // 
     void on_apply(braft::Iterator& iter) {
-        // A batch of tasks are committed, which must be processed through 
+        // A batch(批) of tasks are committed, which must be processed through 
         // |iter|
+        // 一批task要提交，必须通过|iter|实现
         for (; iter.valid(); iter.next()) {
             // This guard helps invoke iter.done()->Run() asynchronously to
             // avoid that callback blocks the StateMachine.
@@ -79,34 +85,40 @@ protected:
 class Iterator {
     // Move to the next task.
     void next();
-    // Return a unique and monotonically increasing identifier of the current 
+    // Return a unique and monotonically(单调） increasing identifier（标识符） of the current 
     // task:
-    //  - Uniqueness guarantees that committed tasks in different peers with 
-    //    the same index are always the same and kept unchanged.
+    //  - Uniqueness(唯一) guarantees that committed tasks in different peers with 
+    //    the same index（相同） are always the same and kept unchanged.
+    //    唯一性保证在具有/相同索引的不同对等点中提交的任务总是相同的，并且保持不变。
+    //    相同索引，不同peers
     //  - Monotonicity guarantees that for any index pair i, j (i < j), task 
     //    at index |i| must be applied before task at index |j| in all the 
     //    peers from the group.
+    //    单调性保证顺序执行
     int64_t index() const;
     // Returns the term of the leader which to task was applied to.
+    // 返回要执行任务的领导人的任期
     int64_t term() const;
     // Return the data whose content is the same as what was passed to
+    // 返回内容与传递内容相同的数据
     // Node::apply in the leader node.
     const butil::IOBuf& data() const;
     // If done() is non-NULL, you must call done()->Run() after applying this
     // task no matter this operation succeeds or fails, otherwise the
     // corresponding resources would leak.
     //
-    // If this task is proposed by this Node when it was the leader of this 
-    // group and the leadership has not changed before this point, done() is 
+    // If this task is proposed by(由...提出) this Node when it was the leader of this 
+    // group and the leadership has not changed before this point在此之前领导层没有改变 , done() is 
     // exactly what was passed to Node::apply which may stand for some 
     // continuation (such as respond to the client) after updating the 
     // StateMachine with the given task. Otherweise done() must be NULL.
     Closure* done() const;
-    // Return true this iterator is currently references to a valid task, false
-    // otherwise, indicating that the iterator has reached the end of this
+    // Return true this iterator is currently references to a valid task返回true这个迭代器当前是对有效任务的引用 ,
+    //false otherwise, indicating that the iterator has reached the end of this
     // batch of tasks or some error has occurred
     bool valid() const;
-    // Invoked when some critical error occurred. And we will consider the last 
+    // Invoked when some critical error occurred发生某些严重错误时调用
+    // And we will consider the last 
     // |ntail| tasks (starting from the last iterated one) as not applied. After
     // this point, no further changes on the StateMachine as well as the Node 
     // would be allowed and you should try to repair this replica or just drop 
@@ -134,38 +146,41 @@ Node(const GroupId& group_id, const PeerId& peer_id);
 struct NodeOptions {
     // A follower would become a candidate if it doesn't receive any message 
     // from the leader in |election_timeout_ms| milliseconds
-    // Default: 1000 (1s)
+    // Default: 1000 (1s)，重新选举触发时间
     int election_timeout_ms;
 
-    // A snapshot saving would be triggered every |snapshot_interval_s| seconds
-    // if this was reset as a positive number
+    // A snapshot saving would be triggered（触发） every |snapshot_interval_s| seconds
+    // if this was reset as a positive number如果这被重置为正数
     // If |snapshot_interval_s| <= 0, the time based snapshot would be disabled.
+    // 为负值，则快照不可用 
     //
     // Default: 3600 (1 hour)
     int snapshot_interval_s;
 
-    // We will regard a adding peer as caught up if the margin between the
+    // We will regard a adding peer as caught up if the margin between the 
     // last_log_index of this peer and the last_log_index of leader is less than
-    // |catchup_margin|
-    //
+|   // catchup_margin|
+    // 我们将把添加的同行视为追赶，如果此peer的last_log_index和leader的last_log_inde之间的差距小于1000
     // Default: 1000
     int catchup_margin;
 
     // If node is starting from a empty environment (both LogStorage and
     // SnapshotStorage are empty), it would use |initial_conf| as the
-    // configuration of the group, otherwise it would load configuration from
+    // configuration of the group, otherwise it would load（加载） configuration from
     // the existing environment.
-    //
+    // 如果节点的启动环境是空的（没有log和snapshot），则根据|initial_conf|作为group配置
+    // 否则将从现有的环境加载配置
     // Default: A empty group
     Configuration initial_conf;
 
     // The specific StateMachine implemented your business logic, which must be
-    // a valid instance.
+    // a valid（有效的） instance（实例）.
+    // 特特定的状态机，有效的实例，实现业务逻辑
     StateMachine* fsm;
 
-    // If |node_owns_fsm| is true. |fms| would be destroyed when the backing
-    // Node is no longer referenced.
-    //
+    // If |node_owns_fsm| is true. |fms| would be destroyed（销毁） when the 
+    // backing Node(后备节点) is no longer referenced.
+    // 当不再引用后备节点时候，fms会被摧毁
     // Default: false
     bool node_owns_fsm;
 
@@ -178,13 +193,14 @@ struct NodeOptions {
     // Describe a specific SnapshotStorage in format ${type}://${parameters}
     std::string snapshot_uri;
     
-    // If enable, duplicate files will be filtered out before copy snapshot from remote
+    // If enable, duplicate(重复) files will be filtered（过滤） out before copy snapshot from remote
+    // 如果启用，则在从远程复制快照之前将过滤掉重复的文件，避免无用的传输（本地和远程相同的文件名和校验和（存储在meta）视为重复）
     // to avoid useless transmission. Two files in local and remote are duplicate,
     // only if they has the same filename and the same checksum (stored in file meta).
     // Default: false
     bool filter_before_copy_remote;
     
-    // If true, RPCs through raft_cli will be denied.
+    // If true, RPCs through raft_cli will be denied则通过raft_cli的RPC将被拒绝.
     // Default: false
     bool disable_cli;
 };
@@ -193,19 +209,20 @@ class Node {
 };
 ```
 
-* initial_conf只有在这个复制组从空节点启动才会生效，当有snapshot和log里的数据不为空的时候的时候从其中恢复Configuration。initial_conf只用于创建复制组，第一个节点将自己设置进initial_conf，再调用add_peer添加其他节点，其他节点initial_conf设置为空；也可以多个节点同时设置相同的inital_conf(多个节点的ip:port)来同时启动空节点。
+* initial_conf只有在这个复制组从空节点（<font color='red'>什么才是空节点</font>）启动才会生效，当有snapshot和log里的数据不为空的时候的时候从其中恢复Configuration。<u>initial_conf只用于创建复制组</u>，第一个节点将自己设置进initial_conf，再调用add_peer添加其他节点，其他节点initial_conf设置为空；也可以多个节点同时设置相同的inital_conf(多个节点的ip:port)来同时启动空节点。
 
+<font color='red'>
 * RAFT需要三种不同的持久存储, 分别是:
 
   * RaftMetaStorage, 用来存放一些RAFT算法自身的状态数据， 比如term, vote_for等信息.
   * LogStorage, 用来存放用户提交的WAL
-  * SnapshotStorage, 用来存放用户的Snapshot以及元信息.
+  * SnapshotStorage, 用来存放用户的Snapshot以及元信息.</font>
 
-  用三个不同的uri来表示, 并且提供了基于本地文件系统的默认实现， type为local, 比如 local://data 就是存放到当前文件夹的data目录， local:///home/disk1/data 就是存放在 /home/disk1/data中。libraft中有默认的local://实现，用户可以根据需要继承实现相应的Storage。
+  用三个不同的uri（<font color='red'>uri是什么</font>）来表示, 并且提供了基于本地文件系统的默认实现， type为local, 比如 local://data 就是存放到当前文件夹的data目录， local:///home/disk1/data 就是存放在 /home/disk1/data中。libraft中有默认的local://实现，<u>用户可以根据需要继承实现相应的Storage即自己可以十二指路径</u>
 
 # 将操作提交到复制组
 
-你需要将你的操作序列化成[IOBuf](https://github.com/brpc/brpc/blob/master/src/butil/iobuf.h), 这是一个非连续零拷贝的缓存结构. 构造一个Task, 并且向braft::Node提价
+你需要将你的操作序列化成[IOBuf](https://github.com/brpc/brpc/blob/master/src/butil/iobuf.h), 这是一个非连续零拷贝的缓存结构. 构造一个Task, 并且向braft::Node提交
 
 ```cpp
 #include <braft/raft.h>
@@ -229,34 +246,40 @@ struct Task {
     Task() : data(NULL), done(NULL) {}
 
     // The data applied to StateMachine
+    // 数据应用于StateMachine
     base::IOBuf* data;
 
     // Continuation when the data is applied to StateMachine or error occurs.
+    // 数据应用于StateMachine
     Closure* done;
  
-    // Reject this task if expected_term doesn't match the current term of
-    // this Node if the value is not -1
+    // Reject this task if expected_term doesn't match the current term of this Node if the value is not -1
+    //如果expected_term与此节点的当前term不匹配（如果值不为-1），则拒绝此任务
     // Default: -1
     int64_t expected_term;
 };
     
 // apply task to the replicated-state-machine
-//
-// About the ownership:
-// |task.data|: for the performance consideration, we will take way the 
+// 将任务应用于复制状态机
+// About the ownership(所有权):啥是所有权，有啥用
+// |task.data|: for the performance consideration, we will take way the  
 //              content. If you want keep the content, copy it before call
 //              this function
+//              为了性能考虑，我们将采取内容
+//              需要保留内容的话，则在调用函数之前拷贝他
 // |task.done|: If the data is successfully committed to the raft group. We
 //              will pass the ownership to StateMachine::on_apply.
 //              Otherwise we will specify the error and call it.
-//
+//              data成功提交给raft group后，所有权就会移交给StateMachine::on_apply.   
+//              否则我们将指定错误并调用它 
+
 void apply(const Task& task);
 ```
 
-* **Thread-Safety**: apply是线程安全的，并且实现基本等价于是[wait-free](https://en.wikipedia.org/wiki/Non-blocking_algorithm#Wait-freedom). 这意味着你可以在多线程向同一个Node中提交WAL.
+* **Thread-Safety**: apply是线程安全的，并且实现基本等价于是[wait-free](https://en.wikipedia.org/wiki/Non-blocking_algorithm#Wait-freedom). 这意味着你可以在多线程向同一个Node中提交WAL.（WAL是什么）
 
 
-* **apply不一定成功**，如果失败的话会设置done中的status，并回调。on_apply中一定是成功committed的，但是apply的结果在leader发生切换的时候存在[false negative](https://en.wikipedia.org/wiki/False_positives_and_false_negatives#False_negative_error), 即框架通知这次WAL写失败了， 但最终相同内容的日志被新的leader确认提交并且通知到StateMachine. 这个时候通常客户端会重试(超时一般也是这么处理的), 所以一般需要确保日志所代表的操作是[幂等](https://en.wikipedia.org/wiki/Idempotence)的
+* **apply不一定成功**，如果失败的话会设置done中的status，并回调。on_apply中一定是成功committed的，但是apply的结果在leader发生切换的时候存在[false negative](https://en.wikipedia.org/wiki/False_positives_and_false_negatives#False_negative_error), 即框架通知这次WAL写失败了， 但最终相同内容的日志被新的leader确认提交并且通知到StateMachine. 这个时候通常客户端会重试(超时一般也是这么处理的), 所以一般需要确保日志所代表的操作是[幂等](https://en.wikipedia.org/wiki/Idempotence)（任意多次执行所产生的影响均与一次执行的影响相同）的。<font color='red'>apply不一定成功，committed一定成功，leader切换的是偶apply结果会false negative</font>
 
 * 不同的日志处理结果是独立的, **一个线程**连续提交了A,B两个日志， 那么以下组合都有可能发生:
 
@@ -274,6 +297,7 @@ raft::Closure是一个特殊的protobuf::Closure的子类， 可以用了标记�
 ```cpp
 // Raft-specific closure which encloses a base::Status to report if the
 // operation was successful.
+// 如果操作成功，Raft-specific 会关闭 还有report
 class Closure : public google::protobuf::Closure {
 public:
     base::Status& status() { return _st; }
@@ -288,27 +312,33 @@ StateMachine中还提供了一些接口, 实现这些接口能够监听Node的�
 ```cpp
 class StateMachine {
 ...
-    // Invoked once when the raft node was shut down. Corresponding resources are safe
+    // Invoked once when the raft node was shut down. Corresponding resources are safe to cleared ever after
+    // 当raft node 关闭时调用一次。相应的资源是可以安全的清除，默认什么都不做
     // to cleared ever after.
     // Default do nothing
     virtual void on_shutdown();
     // Invoked when the belonging node becomes the leader of the group at |term|
     // Default: Do nothing
+    // 当所属节点成为| term |的组的领导者时调用 
     virtual void on_leader_start(int64_t term);
     // Invoked when this node is no longer the leader of the belonging group.
     // |status| describes more details about the reason.
+    // 当此节点不再是所属组的领导者时调用
     virtual void on_leader_stop(const butil::Status& status);
-    // Invoked when some critical error occurred and this Node stops working 
-    // ever after.  
+    // Invoked when some critical error occurred and this Node stops working  ever after 
+    // 发生某些严重错误时调用，此节点此后停止工作 
     virtual void on_error(const ::braft::Error& e);
     // Invoked when a configuration has been committed to the group
     virtual void on_configuration_committed(const ::braft::Configuration& conf);
+    // 将配置提交到组virtual void on_configuration_committed时调用（const :: draft :: Configuration conf） 
     // Invoked when a follower stops following a leader
-    // situations including: 
-    // 1. Election timeout is expired. 
-    // 2. Received message from a node with higher term
+    // 跟随者停止跟随领导者时调用 
+    // situations(情况) including: 
+    // 1. Election timeout is expired. 选举超时已过期 
+    // 2. Received message from a node with higher term选举超时已过期 
     virtual void on_stop_following(const ::braft::LeaderChangeContext& ctx);
     // Invoked when this node starts to follow a new leader.
+    // 当此节点开始跟随新的领导者时调用
     virtual void on_start_following(const ::braft::LeaderChangeContext& ctx);
 ...
 };
@@ -316,14 +346,14 @@ class StateMachine {
 
 # 实现Snapshot
 
-在braft中，Snapshot被定义为**在特定持久化存储中的文件集合**, 用户将状态机序列化到一个或者多个文件中， 并且任何节点都能从这些文件中恢复状态机到当时的状态.
+在braft中，Snapshot被定义为**在特定持久化存储中的文件集合**, 用户将状态机序列化到一个或者多个文件中， 并且任何节点都能从这些文件中恢复状态机到当时的状态.<font color='red'>就是文件</font>
 
 Snapshot有两个作用:
 
 - 启动加速， 启动阶段变为加载Snapshot和追加之后日志两个阶段， 而不需要重新执行历史上所有的操作.
 - Log Compaction， 在完成Snapshot完成之后， 这个时间之前的日志都可以被删除了， 这样可以减少日志占用的资源.
 
-在braft的中， 可以通过SnapshotReader和SnapshotWriter来控制访问相应的Snapshot.
+在braft的中， 可以通过<font color='red'>SnapshotReader和SnapshotWriter</font>来控制访问相应的Snapshot.
 
 ```cpp
 class Snapshot : public butil::Status {
@@ -337,7 +367,7 @@ public:
     // List all the existing files in the Snapshot currently
     virtual void list_files(std::vector<std::string> *files) = 0;
 
-    // Get the implementation-defined file_meta
+    // Get the implementation-defined file_meta获取实现定义的file_meta
     virtual int get_file_meta(const std::string& filename, 
                               ::google::protobuf::Message* file_meta) {
         (void)filename;
@@ -351,16 +381,19 @@ public:
     SnapshotWriter() {}
     virtual ~SnapshotWriter() {}
 
-    // Save the meta information of the snapshot which is used by the raft
-    // framework.
+    // Save the meta information of the snapshot which is used by the raft framework
+    // 保存raft框架使用的快照的meta information
     virtual int save_meta(const SnapshotMeta& meta) = 0;
 
     // Add a file to the snapshot.
     // |file_meta| is an implmentation-defined protobuf message 
+    // | file_meta |是一个implmentation定义的protobuf消息
     // All the implementation must handle the case that |file_meta| is NULL and
     // no error can be raised.
-    // Note that whether the file will be created onto the backing storage is
+    // 所有实现必须处理file_meta| is NULL的情况，且没有异常可以抛出
+    // Note that whether the file will be created onto the backing storage 
     // implementation-defined.
+    // 请注意，是否将在后备存储上创建文件是isimplementation-defined.
     virtual int add_file(const std::string& filename) { 
         return add_file(filename, NULL);
     }
@@ -371,6 +404,7 @@ public:
     // Remove a file from the snapshot
     // Note that whether the file will be removed from the backing storage is
     // implementation-defined.
+    // 是否将从后备存储中删除该文件是 implementation-defined
     virtual int remove_file(const std::string& filename) = 0;
 };
 
@@ -382,8 +416,9 @@ public:
     // Load meta from 
     virtual int load_meta(SnapshotMeta* meta) = 0;
 
-    // Generate uri for other peers to copy this snapshot.
+    // Generate uri for other peers to copy this snapshot.为其他peer生成uri以复制此快照 
     // Return an empty string if some error has occcured
+    // 如果发生了某些错误，则返回空字符串
     virtual std::string generate_uri_for_copy() = 0;
 };
 ```
@@ -440,6 +475,7 @@ void remove_peer(const PeerId& peer, Closure* done);
 // Gracefully change the configuration of the raft group to |new_peers| , done->Run()
 // would be invoked after this operation finishes, describing the detailed
 // result.
+// 优雅地将raft组的配置更改为| new_peers |
 void change_peers(const Configuration& new_peers, Closure* done);
 ```
 
@@ -461,7 +497,7 @@ void change_peers(const Configuration& new_peers, Closure* done);
 
 ## 重置节点列表
 
-当多数节点故障的时候，是不能通过add_peer/remove_peer/change_peers进行节点变更的，这个时候安全的做法是等待多数节点恢复，能够保证数据安全。如果业务追求服务的可用性，放弃数据安全性的话，可以使用reset_peers飞线设置复制组Configuration。
+<u>当多数节点故障的时候</u>，是不能通过add_peer/remove_peer/change_peers进行节点变更的，这个时候安全的做法是等待多数节点恢复，能够保证数据安全。如果业务追求服务的可用性，放弃数据安全性的话，可以使用reset_peers飞线设置复制组Configuration。
 
 ```cpp
 // Reset the configuration of this node individually, without any repliation

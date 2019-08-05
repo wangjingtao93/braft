@@ -20,7 +20,7 @@ if [[ ! -d "$mydir" ]]; then mydir="$PWD"; fi
 . $mydir/../shflags
 
 # define command-line flags
-DEFINE_string crash_on_fatal 'true' 'Crash on fatal log'
+DEFINE_string crash_on_fatal 'true' 'Crash on fatal log' #wjt修改
 DEFINE_integer bthread_concurrency '18' 'Number of worker pthreads'
 DEFINE_string sync 'true' 'fsync each time'
 DEFINE_string valgrind 'false' 'Run in valgrind'

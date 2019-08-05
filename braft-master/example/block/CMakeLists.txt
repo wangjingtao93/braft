@@ -37,6 +37,13 @@ if((NOT BRPC_INCLUDE_PATH) OR (NOT BRPC_LIB))
 endif()
 include_directories(${BRPC_INCLUDE_PATH})
 
+find_path(GLOG_INCLUDE_PATH NAMES glog/logging.h)
+find_library(GLOG_LIB NAMES glog)
+if((NOT GLOG_INCLUDE_PATH) OR (NOT GLOG_LIB))
+    message(FATAL_ERROR "Fail to find glog")
+endif()
+include_directories(${GLOG_INCLUDE_PATH})
+
 find_path(BRAFT_INCLUDE_PATH NAMES braft/raft.h)
 if ((NOT BRAFT_INCLUDE_PATH) OR (NOT BRAFT_LIB))
     message (FATAL_ERROR "Fail to find braft")
@@ -118,6 +125,7 @@ set(DYNAMIC_LIB
     ${LEVELDB_LIB}
     ${BRAFT_LIB}
     ${BRPC_LIB}
+    ${GLOG_LIB}
     rt
     ssl
     crypto
