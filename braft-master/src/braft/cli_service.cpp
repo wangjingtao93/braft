@@ -228,13 +228,30 @@ void CliServiceImpl::get_leader(::google::protobuf::RpcController* controller,
     }
     cntl->SetFailed(EAGAIN, "Unknown leader");
 }
+/********************************************************************
+*Function:       
+*Description:     这个函数经常用到,根据BG_name（group_id：00000...）和BD(peer_id:127.0.0.1:10001:0)，从map表里取出这个node(这个node具体包含什么信息，不知道),
+                    或者说给这个*node赋值
+                 1. 需要判断BG（group_id）是否在这个BD(127.0.0.1:10001:0)上。因为BG是三副本，可能分布在不同的BD上，
+                 2. 判断此node是否可access（权限）
+*Calls:          
+                
+*Table Accessed: 
+*Table Updated: 
+*Input:          1. scoped_refptr<NodeImpl>* node
+                 2.  const GroupId& group_id（BG_name）
+                 3. const std::string& peer_id,传入的是request->leader_id(127.0.0.1:10001:0)      
 
+*Output:         scoped_refptr<NodeImpl>* node       
+*Return:         butil::Status
+*Others:        
+*********************************************************************/
 butil::Status CliServiceImpl::get_node(scoped_refptr<NodeImpl>* node,
                                       const GroupId& group_id,
                                       const std::string& peer_id) {
     NodeManager* const nm = NodeManager::GetInstance();
     if (!peer_id.empty()) {
-        *node = nm->get(group_id, peer_id);
+        *node = nm->get(group_id, peer_id);//这个地方，给*node赋值
         if (!(*node)) {
             return butil::Status(ENOENT, "Fail to find node %s in group %s",
                                          peer_id.c_str(),
@@ -255,6 +272,7 @@ butil::Status CliServiceImpl::get_node(scoped_refptr<NodeImpl>* node,
         *node = nodes.front();
     }
 
+    //判断此node是否可access（权限）
     if ((*node)->disable_cli()) {
         return butil::Status(EACCES, "CliService is not allowed to access node "
                                     "%s", (*node)->node_id().to_string().c_str());
@@ -284,7 +302,26 @@ static void change_peers_returned(brpc::Controller* cntl,
         response->add_new_peers(iter->to_string());
     }
 }
-
+/********************************************************************
+*Function:       
+*Description:    server端入口，处理client的rpc请求
+*Calls:          butil::Status CliServiceImpl::get_node(scoped_refptr<NodeImpl>* node,
+                                      const GroupId& group_id,
+                                      const std::string& peer_id)
+                 node.cpp, butil::Status NodeImpl::list_peers(std::vector<PeerId>* peers)
+                 configuration.h, bool add_peer(const PeerId& peer),
+                 node.cpp, void NodeImpl::change_peers(const Configuration& new_peers, Closure* done) 
+                
+*Table Accessed: 
+*Table Updated: 
+*Input:         ::google::protobuf::RpcController* controller
+                const ::braft::ChangePeersRequest* request
+                ::braft::ChangePeersResponse* response 
+                ::google::protobuf::Closure* done                     
+*Output:         
+*Return:        node->change_peers(conf, change_peers_done) 
+*Others:        
+*********************************************************************/
 void CliServiceImpl::change_peers(::google::protobuf::RpcController* controller,
                                   const ::braft::ChangePeersRequest* request,
                                   ::braft::ChangePeersResponse* response,
@@ -292,31 +329,49 @@ void CliServiceImpl::change_peers(::google::protobuf::RpcController* controller,
     brpc::Controller* cntl = (brpc::Controller*)controller;
     brpc::ClosureGuard done_guard(done);
     scoped_refptr<NodeImpl> node;
+
+    //从map里取出node
     butil::Status st = get_node(&node, request->group_id(), request->leader_id());
     if (!st.ok()) {
         cntl->SetFailed(st.error_code(), "%s", st.error_cstr());
         return;
     }
+
+    //整出来old_peers，给NewCallback（）使用
     std::vector<PeerId> old_peers;
-    st = node->list_peers(&old_peers);
+    st = node->list_peers(&old_peers);//这个是此BG原先所在的BD的 ip：port：0
     if (!st.ok()) {
         cntl->SetFailed(st.error_code(), "%s", st.error_cstr());
         return;
     }
-    Configuration conf;
+
+     //一组peers时
+    Configuration conf;//Configuration这个类有些方法比如add_peer change_peer等
     for (int i = 0; i < request->new_peers_size(); ++i) {
         PeerId peer;
         if (peer.parse(request->new_peers(i)) != 0) {
+            //经常会用到，像是判断peers格式是否有正确：ip:port+index
             cntl->SetFailed(EINVAL, "Fail to parse %s",
                                     request->new_peers(i).c_str());
             return;
         }
+
+        // Add a peer，像是要向一个内存中的set容器即_peer中插入这条ip记录，至于什么作用，不清楚
+        // new_peers有两个element,测试时元素就是两个IP+prort，一个是BG_to_Remove(127.0.0.1:10001)
+        //一个是BG_to_add(127.0.0.1:10003)
         conf.add_peer(peer);
     }
+
+    // 异步，
+    // We use protobuf utility（有效的） `NewCallback' to create a closure（关闭，终止，结束） object
+    // that will call our callback `HandleEchoResponse'. This closure
+    // will automatically delete itself after being called once
     Closure* change_peers_done = NewCallback(
             change_peers_returned, 
             cntl, request, response, old_peers, conf, node,
             done_guard.release());
+
+     //configuration chanage，入参：实例conf，指针change_peers_done，这俩入参牛逼
     return node->change_peers(conf, change_peers_done);
 }
 

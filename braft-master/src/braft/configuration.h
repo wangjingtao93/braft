@@ -202,6 +202,7 @@ public:
     }
 
     // True if the peer exists.
+    // 函数add_peers已经将raft_conf插入容器_peers里了
     bool contains(const PeerId& peer_id) const {
         return _peers.find(peer_id) != _peers.end();
     }
@@ -230,6 +231,7 @@ public:
 
     bool equals(const Configuration& rhs) const {
         if (size() != rhs.size()) {
+            //size()是_peers_size()
             return false;
         }
         // The cost of the following routine is O(nlogn), which is not the best
@@ -245,6 +247,7 @@ public:
     // Get the difference between |*this| and |rhs|
     // |included| would be assigned to |*this| - |rhs|
     // |excluded| would be assigned to |rhs| - |*this|
+    // 牛逼
     void diffs(const Configuration& rhs,
                Configuration* included,
                Configuration* excluded) const {
@@ -252,7 +255,7 @@ public:
         *excluded = rhs;
         for (std::set<PeerId>::const_iterator 
                 iter = _peers.begin(); iter != _peers.end(); ++iter) {
-            excluded->_peers.erase(*iter);
+            excluded->_peers.erase(*iter);//从_peers里整出来的，_peers里应该和new_peers一样的
         }
         for (std::set<PeerId>::const_iterator 
                 iter = rhs._peers.begin(); iter != rhs._peers.end(); ++iter) {

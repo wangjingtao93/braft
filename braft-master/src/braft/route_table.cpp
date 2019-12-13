@@ -136,13 +136,17 @@ int update_configuration(const GroupId& group, const Configuration& conf) {
     if (conf.empty()) {
         return -1;
     }
+    ////这个实例的构造方式很陌生,这个指针也不需要delete?
+    //这后面就复杂了，到底想干什么呢？
     RouteTable* const rtb = RouteTable::GetInstance();
     rtb->update_conf(group, conf);
     return 0;
 }
 
+//注意参数conf_str是string型，不是Configuration型
 int update_configuration(const GroupId& group, const std::string& conf_str) {
-    Configuration conf;
+    Configuration conf;//这个地方又整出了一个实例，想搞毛
+    //同样将这个raft_conf插入到表里，简单来讲就是将一组ip:port:index是否在vertor容器中_peers
     if (conf.parse_from(conf_str) != 0) {
         return -1;
     }

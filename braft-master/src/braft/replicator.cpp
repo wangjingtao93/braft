@@ -96,18 +96,34 @@ Replicator::~Replicator() {
         _options.node = NULL;
     }
 }
-
+/********************************************************************
+*Function:       
+*Description:    replicator start接口，发rpc
+*Calls:          
+                 
+*Table Accessed: 
+*Table Updated: 
+*Input:           1. const ReplicatorOptions& options（这个数据结构里有好多信息，比如options.group_id）
+                  2. ReplicatorId *id(传进来时还只是个刚构造出来的uint_64值,还未赋值)
+              
+*Output:         
+*Return:         
+*Others:  NodeImpl类和ConfigurationCtx类定义的好复杂      
+*********************************************************************/
 int Replicator::start(const ReplicatorOptions& options, ReplicatorId *id) {
+    // 判断参数是否争取
     if (options.log_manager == NULL || options.ballot_box == NULL
             || options.node == NULL) {
         LOG(ERROR) << "Invalid arguments, group " << options.group_id;
         return -1;
     }
-    Replicator* r = new Replicator();
+
+    Replicator* r = new Replicator();//在自己的.h文件里，构造自己的实例，可以说是很棒了，怪我见识太少
     brpc::ChannelOptions channel_opt;
     //channel_opt.connect_timeout_ms = *options.heartbeat_timeout_ms;
     channel_opt.timeout_ms = -1; // We don't need RPC timeout
     if (r->_sending_channel.Init(options.peer_id.addr, &channel_opt) != 0) {
+        // Init函数是braft自己定义的
         LOG(ERROR) << "Fail to init sending channel"
                    << ", group " << options.group_id;
         delete r;
@@ -116,8 +132,11 @@ int Replicator::start(const ReplicatorOptions& options, ReplicatorId *id) {
 
     // bind lifecycle with node, AddRef
     // Replicator stop is async
+    // 使用节点绑定生命周期
+    //不知道是干啥用的，很神奇
     options.node->AddRef();
 
+    //这部分 bthread_id_create到底是干嘛用的，好像是搞meta数据的，或者填充r->_id,有个结构Id的定义，啧啧啧
     r->_options = options;
     r->_next_index = r->_options.log_manager->last_log_index() + 1;
     if (bthread_id_create(&r->_id, r, _on_error) != 0) {
@@ -130,8 +149,11 @@ int Replicator::start(const ReplicatorOptions& options, ReplicatorId *id) {
     if (id) {
         *id = r->_id.value;
     }
+
+    //INFO的内容：Replicator=7700876361729@127.0.0.1:10003:0 is started, group 00000000...
     LOG(INFO) << "Replicator=" << r->_id << "@" << r->_options.peer_id << " is started"
               << ", group " << r->_options.group_id;
+            
     r->_catchup_closure = NULL;
     r->_last_rpc_send_timestamp = butil::monotonic_time_ms();
     r->_start_heartbeat_timer(butil::gettimeofday_us());
@@ -269,7 +291,18 @@ void Replicator::_block(long start_time_us, int error_code) {
         return _send_empty_entries(false);
     }
 }
-
+/********************************************************************
+*Function:       
+*Description:    异步，变量释放，clouser* done
+*Calls:          
+                 
+*Table Accessed: 
+*Table Updated: 
+*Input:                    
+*Output:         
+*Return:         
+*Others:    
+*********************************************************************/
 void Replicator::_on_heartbeat_returned(
         ReplicatorId id, brpc::Controller* cntl,
         AppendEntriesRequest* request, 
@@ -511,7 +544,20 @@ void Replicator::_on_rpc_returned(ReplicatorId id, brpc::Controller* cntl,
     r->_send_entries();
     return;
 }
-
+/********************************************************************
+*Function:       
+*Description:    判断是否需要install snapshot
+                 Leader已经做完了一个Snapshot，但是Follower依然没有
+                 同步完Snapshot中的Log，这个时候就需要Leader向Follower发送Snapshot
+*Calls:          
+                 
+*Table Accessed: 
+*Table Updated: 
+*Input:                    
+*Output:         
+*Return:         
+*Others:    
+*********************************************************************/
 int Replicator::_fill_common_fields(AppendEntriesRequest* request, 
                                     int64_t prev_log_index,
                                     bool is_heartbeat) {
@@ -540,23 +586,41 @@ int Replicator::_fill_common_fields(AppendEntriesRequest* request,
     request->set_committed_index(_options.ballot_box->last_committed_index());
     return 0;
 }
-
+/********************************************************************
+*Function:       
+*Description:    最底层了，给需要add BG的BD发rpc,这里是127.0.0.1:01003
+*Calls:          is_heartbeat，似乎是用来判读需不需要做快照的，设置rpc的心跳超时
+                 
+*Table Accessed: 
+*Table Updated: 
+*Input:                    
+*Output:         
+*Return:         
+*Others:    
+*********************************************************************/
 void Replicator::_send_empty_entries(bool is_heartbeat) {
+    //异步，unique_ptr保证变量在return之前delete
     std::unique_ptr<brpc::Controller> cntl(new brpc::Controller);
-    std::unique_ptr<AppendEntriesRequest> request(new AppendEntriesRequest);
-    std::unique_ptr<AppendEntriesResponse> response(new AppendEntriesResponse);
+    std::unique_ptr<AppendEntriesRequest> request(new AppendEntriesRequest);   // 
+    std::unique_ptr<AppendEntriesResponse> response(new AppendEntriesResponse);//
+    
     if (_fill_common_fields(
                 request.get(), _next_index - 1, is_heartbeat) != 0) {
+        //测试时没进入此分支。快照
         CHECK(!is_heartbeat);
         // _id is unlock in _install_snapshot
         return _install_snapshot();
     }
+    
     if (is_heartbeat) {
+        //测试时没有进入此分支
         _heartbeat_in_fly = cntl->call_id();
         _heartbeat_counter++;
         // set RPC timeout for heartbeat, how long should timeout be is waiting to be optimized.
+        //为heartbeat设置RPC超时，超时应该等待多长时间进行优化
         cntl->set_timeout_ms(*_options.election_timeout_ms / 2);
     } else {
+        //测试时进入此分支
         _st.st = APPENDING_ENTRIES;
         _st.first_log_index = _next_index;
         _st.last_log_index = _next_index - 1;
@@ -577,6 +641,7 @@ void Replicator::_send_empty_entries(bool is_heartbeat) {
                 _id.value, cntl.get(), request.get(), response.get(),
                 butil::monotonic_time_ms());
 
+    //发rpc
     RaftService_Stub stub(&_sending_channel);
     stub.append_entries(cntl.release(), request.release(), 
                         response.release(), done);
@@ -1355,11 +1420,16 @@ int ReplicatorGroup::init(const NodeId& node_id, const ReplicatorGroupOptions& o
     return 0;
 }
 
+//入口，call start()
 int ReplicatorGroup::add_replicator(const PeerId& peer) {
     CHECK_NE(0, _common_options.term);
+
+    // 判断此peer是否已经被添加
     if (_rmap.find(peer) != _rmap.end()) {
+        //测试时_rmap里是空的，所以不会进入此分支
         return 0;
     }
+
     ReplicatorOptions options = _common_options;
     options.peer_id = peer;
     ReplicatorId rid;

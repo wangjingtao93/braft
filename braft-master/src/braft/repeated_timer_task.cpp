@@ -79,7 +79,7 @@ void RepeatedTimerTask::on_timedout() {
 
 void RepeatedTimerTask::start() {
     // Implementation considers the following conditions:
-    //   - The first time start() was invoked
+    //   - The first time start() was invoked（调用）
     //   - stop() was not invoked()
     //   - stop() was invoked and _timer was successfully deleted
     //   - stop() was invoked but _timer was not successfully deleted:

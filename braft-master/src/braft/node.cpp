@@ -758,9 +758,25 @@ void NodeImpl::handle_stepdown_timeout() {
     }
 }
 
+/********************************************************************
+*Function:       
+*Description:    修改BG的分布信息
+*Calls:          1. Configuration.h，bool equals(const Configuration& rhs) const
+                 2. node.cpp, NodeImpl::ConfigurationCtx::start(const Configuration& old_conf,
+                                       const Configuration& new_conf,
+                                       Closure* done)
+*Table Accessed: 
+*Table Updated: 
+*Input:           _conf.conf是old_conf,即BG原来的分布信息（测试时候，BG在一个BD上） 
+                 new_peers即new_conf,现在BG的分布信息（测试时，变为在两个BD上了）           
+*Output:         
+*Return:         
+*Others:        
+*********************************************************************/
 void NodeImpl::unsafe_register_conf_change(const Configuration& old_conf,
                                            const Configuration& new_conf,
                                            Closure* done) {
+    //此BG不是leader的话Waring拒绝配置变化，关闭线程之类
     if (_state != STATE_LEADER) {
         LOG(WARNING) << "[" << node_id()
                      << "] Refusing configuration changing because the state is "
@@ -776,6 +792,7 @@ void NodeImpl::unsafe_register_conf_change(const Configuration& old_conf,
         return;
     }
 
+    // check concurrent(并发) conf change，可能是如果资源被占用则拒绝修改，然后关闭线程之类，return
     // check concurrent conf change
     if (_conf_ctx.is_busy()) {
         LOG(WARNING) << "[" << node_id()
@@ -787,12 +804,14 @@ void NodeImpl::unsafe_register_conf_change(const Configuration& old_conf,
         return;
     }
 
+    //立刻return，当new peers equals to 当前配置
     // Return immediately when the new peers equals to current configuration
     if (_conf.conf.equals(new_conf)) {
         run_closure_in_bthread(done);
         return;
     }
 
+    //这个重要，修改peers(比如BG)的分布信息
     return _conf_ctx.start(old_conf, new_conf, done);
 }
 
@@ -820,7 +839,10 @@ void NodeImpl::remove_peer(const PeerId& peer, Closure* done) {
 }
 
 void NodeImpl::change_peers(const Configuration& new_peers, Closure* done) {
-    BAIDU_SCOPED_LOCK(_mutex);
+    BAIDU_SCOPED_LOCK(_mutex);/加把锁？
+
+    //_conf.conf是old_conf,即BG原来的分布信息（测试时候，conf内容是：BG原先在的一个BD的ip:port）
+    //new_peers即new_conf,现在BG的分布信息（测试时，变为在两个BD上了）
     return unsafe_register_conf_change(_conf.conf, new_peers, done);
 }
 
@@ -1622,7 +1644,19 @@ void NodeImpl::reset_leader_id(const PeerId& new_leader_id,
         _leader_id = new_leader_id;
     }
 }
-
+/********************************************************************
+*Function:       
+*Description:    
+*Calls:          
+                 
+*Table Accessed: 
+*Table Updated: 
+*Input:           
+              
+*Output:         
+*Return:         
+*Others:       
+*********************************************************************/
 // in lock
 void NodeImpl::check_step_down(const int64_t request_term, const PeerId& server_id) {
     butil::Status status;
@@ -2020,7 +2054,21 @@ private:
     NodeImpl* _node;
     int64_t _term;
 };
-
+/********************************************************************
+*Function:       处理append_entries的rpc请求
+*Description:    1. node.cpp，inline bool is_active_state(State s)
+*Calls:          2. node.cpp，void NodeImpl::check_step_down(const int64_t request_term, const PeerId& server_id) 
+                 3. node.cpp, void NodeImpl::step_down(const int64_t term, bool wakeup_a_candidate, 
+                         const butil::Status& status) 
+                 4. 
+*Table Accessed: 
+*Table Updated: 
+*Input:           
+              
+*Output:         
+*Return:         
+*Others:       
+*********************************************************************/
 void NodeImpl::handle_append_entries_request(brpc::Controller* cntl,
                                              const AppendEntriesRequest* request,
                                              AppendEntriesResponse* response,
@@ -2035,6 +2083,8 @@ void NodeImpl::handle_append_entries_request(brpc::Controller* cntl,
     response->set_term(_current_term);
 
     if (!is_active_state(_state)) {
+        //这到底是想判断什么，active是什么意思，是指node在工作状态吗？
+        //测试时没有进入此分支。_state=braft::STATE_FOLLOWER
         const int64_t saved_current_term = _current_term;
         const State saved_state = _state;
         lck.unlock();
@@ -2046,6 +2096,7 @@ void NodeImpl::handle_append_entries_request(brpc::Controller* cntl,
         return;
     }
 
+    //解析request->server_id(测试时就是127.0.0.10001:0)
     PeerId server_id;
     if (0 != server_id.parse(request->server_id())) {
         lck.unlock();
@@ -2058,8 +2109,9 @@ void NodeImpl::handle_append_entries_request(brpc::Controller* cntl,
         return;
     }
 
-    // check stale term
+    // check stale(旧的，陈腐的) term
     if (request->term() < _current_term) {
+        //测试时没进入此分支
         const int64_t saved_current_term = _current_term;
         lck.unlock();
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
@@ -2072,8 +2124,10 @@ void NodeImpl::handle_append_entries_request(brpc::Controller* cntl,
     }
 
     // check term and state to step down
+    // 这里是往下的入口
     check_step_down(request->term(), server_id);   
      
+     //检查是否有leader，则term+1，让这两个leader都step down，减少脑裂损失
     if (server_id != _leader_id) {
         LOG(ERROR) << "Another peer " << _group_id << ":" << server_id
                    << " declares that it is the leader at term=" << _current_term 
@@ -2090,12 +2144,16 @@ void NodeImpl::handle_append_entries_request(brpc::Controller* cntl,
 
     if (!from_append_entries_cache) {
         // Requests from cache already updated timestamp
+        //来自缓存的请求已经更新了时间戳
+        //测试时进入了此分支
         _last_leader_timestamp = butil::monotonic_time_ms();
     }
 
+    //检查是此节点否正在做快照
     if (request->entries_size() > 0 &&
             (_snapshot_executor
                 && _snapshot_executor->is_installing_snapshot())) {
+        //测试时没有进入此分支
         LOG(WARNING) << "node " << _group_id << ":" << _server_id
                      << " received append entries while installing snapshot";
         cntl->SetFailed(EBUSY, "Is installing snapshot");
@@ -2105,7 +2163,10 @@ void NodeImpl::handle_append_entries_request(brpc::Controller* cntl,
     const int64_t prev_log_index = request->prev_log_index();
     const int64_t prev_log_term = request->prev_log_term();
     const int64_t local_prev_log_term = _log_manager->get_term(prev_log_index);
+
+    //像是检测local的prev的log的term和request里的prev_log_term是否一致 
     if (local_prev_log_term != prev_log_term) {
+        //测试进入此分支
         int64_t last_index = _log_manager->last_log_index();
         int64_t saved_term = request->term();
         int     saved_entries_size = request->entries_size();
@@ -2115,6 +2176,7 @@ void NodeImpl::handle_append_entries_request(brpc::Controller* cntl,
                     cntl, request, response, done, last_index)) {
             // It's not safe to touch cntl/request/response/done after this point,
             // since the ownership is tranfered to the cache.
+            // 测试时没有进入此分支
             lck.unlock();
             done_guard.release();
             LOG(WARNING) << "node " << _group_id << ":" << _server_id
@@ -2833,7 +2895,22 @@ void NodeImpl::AppendEntriesCache::do_handle_append_entries_cache_timedout(
         clear();
     }
 }
-
+/********************************************************************
+*Function:       
+*Description:    
+*Calls:          1. replicator.cpp，int ReplicatorGroup::add_replicator(const PeerId& peer)
+                 2. replicator.cpp，int ReplicatorGroup::wait_caughtup(const PeerId& peer, 
+                                   int64_t max_margin, const timespec* due_time,
+                                   CatchupClosure* done)
+*Table Accessed: 
+*Table Updated: 
+*Input:          const Configuration& old_conf，测试时是BG原先所在的BD（leader）ip+prot:0
+                 Configuration& new_conf
+                 Closure* done
+*Output:         
+*Return:         
+*Others:  NodeImpl类和ConfigurationCtx类定义的好复杂      
+*********************************************************************/
 void NodeImpl::ConfigurationCtx::start(const Configuration& old_conf,
                                        const Configuration& new_conf,
                                        Closure* done) {
@@ -2841,32 +2918,45 @@ void NodeImpl::ConfigurationCtx::start(const Configuration& old_conf,
     CHECK(!_done);
     _done = done;
     _stage = STAGE_CATCHING_UP;
-    old_conf.list_peers(&_old_peers);
-    new_conf.list_peers(&_new_peers);
-    Configuration adding;
+    old_conf.list_peers(&_old_peers);//set容器，原来都是0个elememts,执行后装入BG分布的BD，
+                                     //即ip+port,一个
+    new_conf.list_peers(&_new_peers);//同上，执行后有两个elements
+    Configuration adding;            //又遛出俩实例
     Configuration removing;
+
+    //主要是要得到需要add_to的BD的ip+port即adding，比如测试时这里就是127.0.0.1:1003
+    //像new_confs有两个elements是127.0.0.1:10001和127.0.0.1:10003，old_conf只有1个element是127.0.0.1:10001，
+    //diffs完了之后就得到adding即127.0.0.1:1003
     new_conf.diffs(old_conf, &adding, &removing);
-    _nchanges = adding.size() + removing.size();
+    _nchanges = adding.size() + removing.size(); //实例比较大小，神奇，此处结果为1，这个值下面没再用到
 
     std::stringstream ss;
     ss << "node " << _node->_group_id << ":" << _node->_server_id
        << " change_peers from " << old_conf << " to " << new_conf;
 
     if (adding.empty()) {
+        //测试时adding是有一个element的即127.0.0.1:10003，所以不会进入此分支
         ss << ", begin removing.";
         LOG(INFO) << ss.str();
         return next_stage();
     }
     ss << ", begin caughtup.";
+
+    //INFO的内容ss大致是：node 0000000000000:127.0.0.1：10001 change_peers from 127.0.0.1:10001
+    // to 127.0.0.1:10001, 127.0.0.1:10003 begin caughtup
     LOG(INFO) << ss.str();
-    adding.list_peers(&_adding_peers);
+
+    //下面的for循环，是要将需要add的peers,一个个replicator。
+    adding.list_peers(&_adding_peers);//_adding_peers容器，elememts是127.0.0.10003即需要的add_to_peer
     for (std::set<PeerId>::const_iterator iter
             = _adding_peers.begin(); iter != _adding_peers.end(); ++iter) {
         if (_node->_replicator_group.add_replicator(*iter) != 0) {
             LOG(ERROR) << "node " << _node->node_id()
                        << " start replicator failed, peer " << *iter;
-            return on_caughtup(_version, *iter, false);
+            return on_caughtup(_version, *iter, false);//把adding peer 视为caught up
         }
+
+        //这都是干什么用的，看不懂
         OnCaughtUp* caught_up = new OnCaughtUp(
                 _node, _node->_current_term, *iter, _version);
         timespec due_time = butil::milliseconds_from_now(

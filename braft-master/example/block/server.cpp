@@ -427,6 +427,7 @@ friend class BlockClosure;
     void on_start_following(const ::braft::LeaderChangeContext& ctx) {
         LOG(INFO) << "Node start following " << ctx;
     }
+    
     // end of @braft::StateMachine
 
 private:
@@ -493,6 +494,9 @@ int main(int argc, char* argv[]) {
     // adding services into a running server is not allowed and the listen
     // address of this server is impossible to get before the server starts. You
     // have to specify the address of the server.
+    // rfat 可以共享同一个RPC server。注意第二个参数，因为不允许将service加入到一个
+    // 正在运行的server，并且在server starts之前获得server的监听地址是不可能的。所以必须
+    // 指定server的address。
     if (braft::add_service(&server, FLAGS_port) != 0) {
         LOG(ERROR) << "Fail to add raft service";
         return -1;
@@ -503,6 +507,9 @@ int main(int argc, char* argv[]) {
     // clients.
     // Notice that default options of server are used here. Check out details 
     // from the doc of brpc if you would like change some options
+    // 要求在block starts之前 start server，以避免他成为leader，然而service 
+    // 对client来说还是unreachable。
+    // 这里server使用默认的options
     if (server.Start(FLAGS_port, NULL) != 0) {
         LOG(ERROR) << "Fail to start Server";
         return -1;

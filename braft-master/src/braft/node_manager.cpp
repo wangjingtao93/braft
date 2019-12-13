@@ -79,7 +79,19 @@ int NodeManager::add_service(brpc::Server* server,
     }
     return 0;
 }
+/********************************************************************
+*Function:       为社么？存了什么呢
+*Description:   
+*Calls:          
+                
+*Table Accessed: 
+*Table Updated: 
+*Input:             
 
+*Output:                
+*Return:         
+*Others:        
+*********************************************************************/
 size_t NodeManager::_add_node(Maps& m, const NodeImpl* node) {
     NodeId node_id = node->node_id();
     std::pair<NodeMap::iterator, bool> ret = m.node_map.insert(
@@ -132,7 +144,7 @@ scoped_refptr<NodeImpl> NodeManager::get(const GroupId& group_id, const PeerId& 
     }
     NodeMap::const_iterator it = ptr->node_map.find(NodeId(group_id, peer_id));
     if (it != ptr->node_map.end()) {
-        return it->second;
+        return it->second;//应该是执行到这一步了，map表里存的是什么呢？
     }
     return NULL;
 }

@@ -2,6 +2,12 @@
 
 [贼棒入门理解小视频](http://thesecretlivesofdata.com/raft/)
 [开源库]( https://github.com/brpc/braft)
+1. The election timeout is randomized to be between 150ms and 300ms.
+2. ACK------>acknowledge vt. 承认；答谢；报偿；告知已收到
+3. 每触发一次选举，term+1
+4. leader 发送的logEntry是在下一个heartbeat时，和它一起
+5. leader response to client是在接收到flower的ACK之哦户
+6. 为什么要网络分区呢(network partion)？有什么好处?
 
 **解决分布式一致性问题**（distributed consensus）,即无论发生什么故障，在多个机器间对某一个值都能达成一致。
 
@@ -107,11 +113,11 @@ raft并不能解决available问题
 
 # 6. Symmetric network partitioning
 
-对称网络划分：可能是因为节点故障导致。
+对称网络划分：可能是因为节点故障导致，比如网络不通了。
 
 新的节点上线，属于PeerSet中的节点可以加入，不属于PeerSet中的节点，leader会永远忽略。
 
-属于PeerSet中的新节点上线，会导致leader降级（stepDown）。会打断lease(租约)，导致复制组不可用
+属于PeerSet中的新节点上线，会导致leader下台（stepDown）。会打断lease(租约)，导致复制组不可用
 
 # 7. Asymmetric network partitioning
 
@@ -140,9 +146,9 @@ raft并不能解决available问题
 
 <font color = 'red'>leader需要决定什么时候将日志（log Entry）应用给状态机是安全的</font>
 <font color = 'red'>committed</font>:可以被状态机应用的Entry叫committed。RAFT<font color = 'red'>保证committed entries持久化</font>，<u>并且最终被其他状态机应用</u>
-**重中之重**：<u>一个log entry一旦复制给了大多数节点就成为committed</u>
+**重中之重**：<u>一个log entry一旦复制给了大多数节点就成为committed</u>,(意思是大多数节点返回了ACK吧)
 
-*节点重启过程*：先加载上一个Snapshot，再加入RAFT复制组，选主或者是接收更新。。因为Snapshot中的数据一定是Applied，那么肯定是Committed的，加载是安全的。但是Log中的数据，不一定是Committed的，因为我们没有持久化CommittedIndex，所以不确定Log是否是Committed，不能进行加载。样先加载Snapshot虽然延迟了新节点加入集群的时间，但是<u>能够保证一旦一个节点变为Leader之后能够比较快的加载完全数据</u>，并提供服务。同理，Follower接收到InstallSnapshot之后，接收并加载完Snapshot之后再回复Leader。
+**节点重启过程**：先加载上一个Snapshot，再加入RAFT复制组，选主或者是接收更新。。因为Snapshot中的数据一定是Applied，那么肯定是Committed的，加载是安全的。但是Log中的数据，不一定是Committed的，因为我们没有持久化CommittedIndex，所以不确定Log是否是Committed，不能进行加载。样先加载Snapshot虽然延迟了新节点加入集群的时间，但是<u>能够保证一旦一个节点变为Leader之后能够比较快的加载完全数据</u>，并提供服务。同理，Follower接收到InstallSnapshot之后，接收并加载完Snapshot之后再回复Leader。
 
 ## 9.1. 关于Replication
 
@@ -235,7 +241,7 @@ Snapshot会花费比较长的时间，如果期望Snapshot不影响正常的Log 
 
 # 13. InstallSnapshot
 
-leader和Follower<u>独立的做Snapshot</u>，但是Leader和Follower之间的<u>Log差距有很大的时候</u>。Leader已经做完了一个Snapshot，但是Follower依然没有同步完Snapshot中的Log，这个时候就<u>需要Leader向Follower发送Snapshot</u>。这就叫InstallSnapshot
+**定义**：leader和Follower<u>独立的做Snapshot</u>，但是Leader和Follower之间的<u>Log差距有很大的时候</u>。Leader已经做完了一个Snapshot，但是Follower依然没有同步完Snapshot中的Log，这个时候就<u>需要Leader向Follower发送Snapshot</u>。这就叫InstallSnapshot
 
 Follower收到InstallSnapshot请求之后的处理流程：
 1. 检查req.term < currentTerm直接返回失败
@@ -257,8 +263,14 @@ Follower收到InstallSnapshot请求之后的处理流程：
 
 
 
-## 14.1. Joint-Consensus##
-RAFT采用<font color='red'>协同一致性</font>的方式<u>解决节点的变更</u>。
+## 14.1. Joint-Consensus
+RAFT采用<font color='red'>协同一致性</font>的方式<u>解决节点的变更</u>。RAFT采用协同一致性的方式来解决节点的变更，先提交一个包含新老节点结合的Configuration命令，当这条消息Commit之后再提交一条只包含新节点的Configuration命令。新老集合中任何一个节点都可以成为Leader，这样Leader宕机之后，如果新的Leader没有看到包括新老节点集合的Configuration日志（这条configuration日志在老节点集合中没有写到多数），继续以老节点集合组建复制组（老节点集合中收到configuration日志的节点会截断日志）；如果新的Leader看到了包括新老节点集合的Configuration日志，将未完成的节点变更流程走完。具体流程如下：
+
+1. 首先对新节点进行CaughtUp追数据
+2. 全部新节点完成CaughtUp之后，向新老集合发送Cold+new命令
+3. 如果新节点集合多数和老节点集合多数都应答了Cold+new，就向新老节点集合发送Cnew命令
+4. 如果新节点集合多数应答了Cnew，完成节点切换
+
 
 ## 14.2. Single-Server Change
 

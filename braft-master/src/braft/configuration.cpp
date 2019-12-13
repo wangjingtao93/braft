@@ -43,7 +43,7 @@ int Configuration::parse_from(butil::StringPiece conf) {
             LOG(ERROR) << "Fail to parse " << peer_str;
             return -1;
         }
-        add_peer(peer);
+        add_peer(peer);//插入vetor容器_peers
     }
     return 0;
 }

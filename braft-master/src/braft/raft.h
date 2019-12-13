@@ -296,6 +296,7 @@ inline bool is_active_state(State s) {
 }
 
 // This class encapsulates the parameter of on_start_following and on_stop_following interfaces.
+// 这个类封装了on_start_following和on_stop_following接口的参数。
 class LeaderChangeContext {
     DISALLOW_COPY_AND_ASSIGN(LeaderChangeContext);
 public:
@@ -305,6 +306,7 @@ public:
         , _st(status)
     {};
     // for on_start_following, the leader_id and term are of the new leader;
+    // leader_id和term是新领导者 
     // for on_stop_following, the leader_id and term are of the old leader.
     const PeerId& leader_id() const { return _leader_id; }
     int64_t term() const { return _term; }

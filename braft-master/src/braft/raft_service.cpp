@@ -86,7 +86,25 @@ void RaftServiceImpl::request_vote(google::protobuf::RpcController* cntl_base,
         return;
     }
 }
-
+/********************************************************************
+*Function:       
+*Description:    处理rpc请求入口,需要add_to_BG的BD（这里是127.0.0.1:10003）,开始处理接收到的rpc请求
+*Calls:          1. node_manager.cpp，scoped_refptr<NodeImpl> NodeManager::get(
+                                                         const GroupId& group_id, 
+                                                         const PeerId& peer_id)
+                 2. node.cpp, void NodeImpl::handle_append_entries_request(brpc::Controller* cntl,
+                                             const AppendEntriesRequest* request,
+                                             AppendEntriesResponse* response,
+                                             google::protobuf::Closure* done,
+                                             bool from_append_entries_cache)
+                 
+*Table Accessed: 
+*Table Updated: 
+*Input:                     
+*Output:         
+*Return:         
+*Others:      
+*********************************************************************/
 void RaftServiceImpl::append_entries(google::protobuf::RpcController* cntl_base,
                             const AppendEntriesRequest* request,
                             AppendEntriesResponse* response,
@@ -97,18 +115,22 @@ void RaftServiceImpl::append_entries(google::protobuf::RpcController* cntl_base,
 
     PeerId peer_id;
     if (0 != peer_id.parse(request->peer_id())) {
+        //检查peer_id是否有效（可用）
         cntl->SetFailed(EINVAL, "peer_id invalid");
         return;
     }
 
+    //类NodeManager可以管理node，有获取node信息等方法,暂时不进入次函数学习
     scoped_refptr<NodeImpl> node_ptr = NodeManager::GetInstance()->get(request->group_id(),
                                                                        peer_id);
     NodeImpl* node = node_ptr.get();
     if (!node) {
+        //检查节点是否存在
         cntl->SetFailed(ENOENT, "peer_id not exist");
         return;
     }
 
+    //调用node.cpp 文件的处理函数
     return node->handle_append_entries_request(cntl, request, response, 
                                                done_guard.release());
 }

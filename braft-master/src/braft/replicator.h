@@ -344,7 +344,7 @@ private:
 
     int _add_replicator(const PeerId& peer, ReplicatorId *rid);
 
-    std::map<PeerId, ReplicatorId> _rmap;
+    std::map<PeerId, ReplicatorId> _rmap;//这个map表想干嘛？记录已完成的task？
     ReplicatorOptions _common_options;
     int _dynamic_timeout_ms;
     int _election_timeout_ms;
